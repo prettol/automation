@@ -1,0 +1,475 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1,3,5"
+            }
+          ]
+        }
+      },
+      "id": "91697da0-8a4d-41a7-a6b6-bfe1a2bf500a",
+      "name": "Schedule Trigger (Mon/Wed/Fri 9AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        176
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ac663d4d-f304-46d0-b80d-0357327e7dd9",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        320,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── POST CATEGORY DEFINITIONS ───\nconst postCategories = [\n  {\n    id: 'education',\n    name: 'Education for Software Business Owners',\n    description: 'Educational content that teaches software business owners practical strategies, frameworks, and insights to grow and manage their businesses more effectively.',\n    tone: 'Authoritative yet approachable. Use real-world examples and actionable takeaways.',\n    examples: [\n      '5 metrics every SaaS founder should track weekly',\n      'Why most software businesses fail at pricing — and how to fix it',\n      'The build vs buy decision: a framework for software business owners'\n    ]\n  },\n  {\n    id: 'thought_leadership',\n    name: 'AI/Software Industry Thought Leadership',\n    description: 'Content that positions the author as a forward-thinking leader in the AI and software industry. Shares bold opinions, predictions, trends, and original perspectives.',\n    tone: 'Confident, visionary, slightly contrarian. Back claims with reasoning or experience.',\n    examples: [\n      'AI won\\'t replace software engineers — but it will replace software companies that ignore it',\n      'The next wave of SaaS will be built by domain experts, not developers',\n      'Why I think the AI agent hype is actually understated'\n    ]\n  },\n  {\n    id: 'cta_consultation',\n    name: 'Call-to-Action — Book a Consultation',\n    description: 'Content that provides genuine value while naturally leading business owners to book a software/AI consultation. Highlights pain points, shares quick wins, and invites readers to go deeper with a call.',\n    tone: 'Empathetic, solution-oriented, helpful. The CTA should feel like a natural next step, not a hard sell.',\n    examples: [\n      'If your software project has stalled, here are 3 questions to ask yourself (and when to call in help)',\n      'I reviewed 20 failed AI implementations last quarter. Here\\'s the #1 mistake — and how to avoid it',\n      'Not sure if AI is right for your business? Here\\'s a 2-minute self-assessment'\n    ]\n  }\n];\n\n// Randomly select a category (or rotate based on day-of-week)\nconst dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ...\nlet selectedIndex;\nif (dayOfWeek === 1) selectedIndex = 0;       // Monday → Education\nelse if (dayOfWeek === 3) selectedIndex = 1;   // Wednesday → Thought Leadership\nelse if (dayOfWeek === 5) selectedIndex = 2;   // Friday → CTA\nelse selectedIndex = Math.floor(Math.random() * 3);\n\nconst selected = postCategories[selectedIndex];\n\nreturn {\n  json: {\n    selectedCategory: selected,\n    allCategories: postCategories,\n    selectionReason: `Selected '${selected.name}' based on day-of-week rotation (day=${dayOfWeek}).`\n  }\n};"
+      },
+      "id": "697fada8-b5a2-4ccc-97b8-0882ff7ae4d5",
+      "name": "Step 1 — Select Post Category",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "list",
+          "cachedResultName": "GPT-4"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a world-class LinkedIn content strategist specializing in the software and AI industry. Your job is to generate scroll-stopping hook lines and post ideas for LinkedIn.\n\nIMPORTANT RULES:\n- Each idea must be a compelling hook line (the first 1-2 lines of a LinkedIn post that appear before \"...see more\")\n- Hooks should trigger curiosity, pattern interrupts, or emotional resonance\n- Ideas must be specific, not generic\n- Each idea should be distinct from the others in angle and approach\n- Return ONLY valid JSON — no markdown, no code fences, no preamble",
+              "role": "system"
+            },
+            {
+              "content": "=Generate exactly 5 LinkedIn post ideas/hook lines for the following category:\n\n**Category:** {{ $json.selectedCategory.name }}\n**Description:** {{ $json.selectedCategory.description }}\n**Tone:** {{ $json.selectedCategory.tone }}\n**Example hooks for reference:** {{ $json.selectedCategory.examples.join(' | ') }}\n\nReturn your response as a JSON object with this exact structure:\n{\n  \"category\": \"<category_name>\",\n  \"ideas\": [\n    {\n      \"id\": 1,\n      \"hook\": \"<the hook line>\",\n      \"angle\": \"<1-sentence description of the angle/approach>\",\n      \"why_it_works\": \"<1-sentence explanation of why this hook is effective>\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.85
+        }
+      },
+      "id": "6034f88e-13f5-4cd3-9cc5-46eb29cf38df",
+      "name": "Step 2 — Generate 5 Post Ideas (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        864,
+        272
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "cZgTBq42bl7BJPJD",
+          "name": "OpenAi account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the 5 ideas from GPT and score them\nconst input = $input.first().json;\n\nlet ideas;\ntry {\n  // The GPT output content is at input.message.content\n  const raw = input.message.content;\n  if (typeof raw !== 'string') {\n    throw new Error('Expected input.message.content to be a string');\n  }\n  const cleaned = raw.replace(/```json\\n?|```\\n?/g, '').trim();\n  ideas = JSON.parse(cleaned).ideas;\n} catch (e) {\n  throw new Error(`Failed to parse GPT response: ${e.message}`);\n}\n\n// ─── SCORING CRITERIA ───\n// Each criterion is scored 1-10, weighted, then summed\nfunction scoreIdea(idea) {\n  const hook = idea.hook.toLowerCase();\n  let scores = {};\n\n  // 1. Curiosity Gap (does it make you NEED to read more?)\n  scores.curiosity = 5;\n  if (hook.includes('why') || hook.includes('how') || hook.includes('what if')) scores.curiosity += 2;\n  if (hook.includes('?')) scores.curiosity += 1;\n  if (hook.includes('secret') || hook.includes('mistake') || hook.includes('truth') || hook.includes('myth')) scores.curiosity += 2;\n\n  // 2. Specificity (numbers, names, concrete details)\n  scores.specificity = 5;\n  if (/\\d+/.test(hook)) scores.specificity += 3;\n  if (hook.includes('example') || hook.includes('case study') || hook.includes('framework')) scores.specificity += 2;\n\n  // 3. Emotional Trigger (does it provoke a feeling?)\n  scores.emotion = 5;\n  const emotionWords = ['fail', 'mistake', 'wrong', 'surprising', 'shocking', 'love', 'hate', 'afraid', 'bold', 'unpopular', 'controversial', 'honest', 'hard truth', 'painful'];\n  emotionWords.forEach(w => { if (hook.includes(w)) scores.emotion += 1; });\n  scores.emotion = Math.min(scores.emotion, 10);\n\n  // 4. Relevance to Target Audience (software/AI business owners)\n  scores.relevance = 5;\n  const audienceWords = ['software', 'saas', 'ai', 'business', 'founder', 'ceo', 'startup', 'product', 'tech', 'engineer', 'developer', 'client', 'revenue', 'growth', 'scale'];\n  audienceWords.forEach(w => { if (hook.includes(w)) scores.relevance += 1; });\n  scores.relevance = Math.min(scores.relevance, 10);\n\n  // 5. Scroll-stop Power (length, pattern interrupt, boldness)\n  scores.scrollStop = 5;\n  if (hook.length < 80) scores.scrollStop += 2; // Short punchy hooks win\n  if (hook.startsWith('i ') || hook.startsWith('stop') || hook.startsWith('nobody')) scores.scrollStop += 2;\n  if (/[—–:]/.test(hook)) scores.scrollStop += 1;\n\n  // Weighted total\n  const weights = { curiosity: 0.25, specificity: 0.20, emotion: 0.20, relevance: 0.20, scrollStop: 0.15 };\n  let totalScore = 0;\n  for (const [k, w] of Object.entries(weights)) {\n    totalScore += scores[k] * w;\n  }\n\n  return {\n    ...idea,\n    scores,\n    totalScore: Math.round(totalScore * 100) / 100\n  };\n}\n\nconst scoredIdeas = ideas.map(scoreIdea).sort((a, b) => b.totalScore - a.totalScore);\n\nconst bestIdea = scoredIdeas[0];\n\nreturn {\n  json: {\n    bestIdea,\n    allScoredIdeas: scoredIdeas,\n    selectionSummary: `Selected idea #${bestIdea.id} with score ${bestIdea.totalScore}/10: \"${bestIdea.hook}\"`\n  }\n};"
+      },
+      "id": "1214cded-b5c9-443c-91d6-7735f2981498",
+      "name": "Step 3 — Score & Pick Best Idea",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "list",
+          "cachedResultName": "GPT-4"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a top-performing LinkedIn ghostwriter for tech executives and AI consultants. You write posts that consistently get high engagement (likes, comments, shares, saves).\n\nYour writing style:\n- Opens with the hook line provided (DO NOT change it)\n- Uses short paragraphs (1-3 sentences max)\n- Includes strategic line breaks for mobile readability\n- Weaves in a compelling narrative or insight\n- Ends with a clear takeaway or call-to-action\n- Uses 3-5 relevant hashtags at the end\n- Total length: 150-250 words (the sweet spot for LinkedIn)\n- NO emojis unless they genuinely add value\n- NO cringe corporate jargon\n- Feels human, authentic, and opinionated\n\nIMPORTANT: Return ONLY valid JSON — no markdown, no code fences.",
+              "role": "system"
+            },
+            {
+              "content": "=Write a full LinkedIn post using this winning hook and context:\n\n**Hook:** {{ $json.bestIdea.hook }}\n**Angle:** {{ $json.bestIdea.angle }}\n**Category:** The post should fit the style of: {{ $node['Step 1 — Select Post Category'].json.selectedCategory.description }}\n**Tone:** {{ $node['Step 1 — Select Post Category'].json.selectedCategory.tone }}\n\nReturn as JSON:\n{\n  \"post\": \"<the full LinkedIn post text including the hook as the opening>\",\n  \"hashtags\": [\"#hashtag1\", \"#hashtag2\"],\n  \"estimated_read_time\": \"<X min read>\",\n  \"target_emotion\": \"<primary emotion this post should evoke>\"\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.75
+        }
+      },
+      "id": "01c21cf8-8183-4696-9489-61272beb3eac",
+      "name": "Step 4 — Generate Full Post (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1408,
+        272
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "cZgTBq42bl7BJPJD",
+          "name": "OpenAi account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the generated post\nconst input = $input.first().json;\nlet postData;\ntry {\n  // Content is at input.message.content, not input.text\n  const raw = input.message.content;\n  if (typeof raw !== 'string') {\n    throw new Error('Expected input.message.content to be a string');\n  }\n  const cleaned = raw.replace(/```json\\n?|```\\n?/g, '').trim();\n  postData = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(`Failed to parse post response: ${e.message}`);\n}\n\n// Carry forward all context\nreturn {\n  json: {\n    post: postData.post,\n    hashtags: postData.hashtags,\n    estimatedReadTime: postData.estimated_read_time,\n    targetEmotion: postData.target_emotion,\n    bestIdea: $node['Step 3 — Score & Pick Best Idea'].json.bestIdea,\n    category: $node['Step 1 — Select Post Category'].json.selectedCategory\n  }\n};"
+      },
+      "id": "cc5396eb-ed2e-4e75-aeed-d64bb09b06b9",
+      "name": "Parse Post Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "list",
+          "cachedResultName": "GPT-4"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a creative director who specializes in social media graphics for LinkedIn. You create graphic concepts that are clean, professional, and optimized for LinkedIn's feed.\n\nYour graphic ideas should:\n- Be specific enough that a designer can execute them in Canva\n- Include layout description, color palette suggestion, key text overlay, and visual style\n- Work at LinkedIn's recommended image size (1200x1200 or 1200x628)\n- Be scroll-stopping and complement (not repeat) the post text\n- Consider brand consistency for a tech/AI consultant\n\nIMPORTANT: Return ONLY valid JSON — no markdown, no code fences.",
+              "role": "system"
+            },
+            {
+              "content": "=Generate exactly 5 graphic/visual ideas to accompany this LinkedIn post:\n\n**Post text:**\n{{ $json.post }}\n\n**Post category:** {{ $json.category.name }}\n**Target emotion:** {{ $json.targetEmotion }}\n\nReturn as JSON:\n{\n  \"graphic_ideas\": [\n    {\n      \"id\": 1,\n      \"title\": \"<short title for the graphic concept>\",\n      \"layout\": \"<describe the layout — what goes where>\",\n      \"key_text_overlay\": \"<the main text that appears on the graphic, if any>\",\n      \"visual_style\": \"<e.g., minimalist, bold typography, isometric illustration, photo-based, data viz>\",\n      \"color_palette\": \"<suggest 2-3 colors with hex codes>\",\n      \"canva_tips\": \"<1-2 sentences on how to execute this in Canva>\",\n      \"why_it_works\": \"<1 sentence on why this graphic complements the post>\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.9
+        }
+      },
+      "id": "8fb12ed2-6646-461d-90dd-4d96b80daf94",
+      "name": "Step 5 — Generate 5 Graphic Ideas (OpenAI)",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1920,
+        272
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "cZgTBq42bl7BJPJD",
+          "name": "OpenAi account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse and score graphic ideas\nconst input = $input.first().json;\nlet graphicData;\ntry {\n  const raw = input.message.content;\n\n  const cleaned = raw.replace(/```json\\n?|```\\n?/g, '').trim();\n  graphicData = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(`Failed to parse graphic ideas: ${e.message}`);\n}\n\nconst ideas = graphicData.graphic_ideas;\n\n// Score graphic ideas\nfunction scoreGraphic(idea) {\n  let score = 5;\n\n  // Simplicity bonus (minimalist/clean styles score higher on LinkedIn)\n  const simpleStyles = ['minimalist', 'clean', 'bold typography', 'simple'];\n  if (simpleStyles.some(s => idea.visual_style.toLowerCase().includes(s))) score += 2;\n\n  // Text overlay bonus (posts with text-on-image get more engagement)\n  if (idea.key_text_overlay && idea.key_text_overlay.length > 5 && idea.key_text_overlay.length < 60) score += 2;\n\n  // Specificity of Canva tips (more actionable = better)\n  if (idea.canva_tips && idea.canva_tips.length > 40) score += 1;\n\n  return { ...idea, score: Math.min(score, 10) };\n}\n\nconst scored = ideas.map(scoreGraphic).sort((a, b) => b.score - a.score);\nconst bestGraphic = scored[0];\n\n// Pull post data from upstream\nconst postNode = $node['Parse Post Output'].json;\n\nreturn {\n  json: {\n    bestGraphicIdea: bestGraphic,\n    allScoredGraphics: scored,\n    post: postNode.post,\n    hashtags: postNode.hashtags,\n    category: postNode.category,\n    bestIdea: postNode.bestIdea,\n    graphicSelectionSummary: `Selected graphic #${bestGraphic.id} (score ${bestGraphic.score}/10): \"${bestGraphic.title}\"`\n  }\n};"
+      },
+      "id": "56394ef1-58e7-452c-99f9-d3baedc02db8",
+      "name": "Step 6 — Score & Pick Best Graphic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── ASSEMBLE THE FINAL LINKEDIN POST PACKAGE ───\nconst data = $input.first().json;\n\n// Calculate a suggested schedule time (next available slot)\nconst now = new Date();\nconst scheduleHour = 8; // 8 AM is a good LinkedIn posting time\nconst scheduledDate = new Date(now);\nscheduledDate.setDate(scheduledDate.getDate() + 1); // Schedule for tomorrow\nscheduledDate.setHours(scheduleHour, 0, 0, 0);\n\nconst finalPackage = {\n  // ── Post Content ──\n  linkedinPostText: data.post,\n  hashtags: data.hashtags,\n\n  // ── Graphic Brief for Canva ──\n  graphicBrief: {\n    title: data.bestGraphicIdea.title,\n    layout: data.bestGraphicIdea.layout,\n    textOverlay: data.bestGraphicIdea.key_text_overlay,\n    visualStyle: data.bestGraphicIdea.visual_style,\n    colorPalette: data.bestGraphicIdea.color_palette,\n    canvaTips: data.bestGraphicIdea.canva_tips,\n    recommendedSize: '1200x1200px (square) or 1200x628px (landscape)'\n  },\n\n  // ── Metadata ──\n  category: data.category.name,\n  hookLine: data.bestIdea.hook,\n  suggestedScheduleTime: scheduledDate.toISOString(),\n  suggestedScheduleDisplay: scheduledDate.toLocaleString('en-US', {\n    weekday: 'long',\n    year: 'numeric',\n    month: 'long',\n    day: 'numeric',\n    hour: 'numeric',\n    minute: '2-digit',\n    timeZoneName: 'short'\n  }),\n  status: 'PENDING_GRAPHIC_CREATION',\n\n  // ── Review Checklist ──\n  reviewChecklist: [\n    'Does the hook grab attention in the first 2 lines?',\n    'Is the post authentic and not overly promotional?',\n    'Does it provide genuine value to software business owners?',\n    'Is the CTA clear (if applicable)?',\n    'Have you created the graphic in Canva based on the brief?',\n    'Does the graphic complement (not repeat) the post?',\n    'Is the scheduled time optimal for your audience timezone?'\n  ]\n};\n\nreturn { json: finalPackage };"
+      },
+      "id": "5082b63d-834e-4d91-ad8a-1cecdfa89bcb",
+      "name": "Step 7 — Assemble Final Post Package",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=📋 *New LinkedIn Post Ready for Review*\n\n*Category:* {{ $json.category }}\n*Hook:* {{ $json.hookLine }}\n*Scheduled for:* {{ $json.suggestedScheduleDisplay }}\n\n---\n\n*POST TEXT:*\n{{ $json.linkedinPostText }}\n\n---\n\n*GRAPHIC BRIEF (for Canva):*\n• *Concept:* {{ $json.graphicBrief.title }}\n• *Layout:* {{ $json.graphicBrief.layout }}\n• *Text Overlay:* {{ $json.graphicBrief.textOverlay }}\n• *Style:* {{ $json.graphicBrief.visualStyle }}\n• *Colors:* {{ $json.graphicBrief.colorPalette }}\n• *Canva Tips:* {{ $json.graphicBrief.canvaTips }}\n• *Size:* {{ $json.graphicBrief.recommendedSize }}\n\n---\n\n*STATUS:* {{ $json.status }}\nPlease react with ✅ when graphic is created and post is approved.",
+        "otherOptions": {}
+      },
+      "id": "3de9a65c-743b-4513-b877-6b22c96ffc82",
+      "name": "Step 8a — Send to Slack for Review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        2736,
+        176
+      ],
+      "webhookId": "a1b142a8-ca24-4c78-8cda-6f1fcc9e2c79"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "sendTo": "={{'tolulopejimoh76@gmail.com'}}",
+        "subject": "LinkedIn Post Ready for Review — {{ $json.category }}",
+        "emailType": "text",
+        "message": "=Hi,\n\nA new LinkedIn post has been generated and is ready for your review.\n\n════════════════════════════════════════\nCATEGORY: {{ $json.category }}\nSCHEDULED FOR: {{ $json.suggestedScheduleDisplay }}\nSTATUS: {{ $json.status }}\n════════════════════════════════════════\n\n── POST TEXT ──\n{{ $json.linkedinPostText }}\n\n── GRAPHIC BRIEF (Create in Canva) ──\nConcept: {{ $json.graphicBrief.title }}\nLayout: {{ $json.graphicBrief.layout }}\nText Overlay: {{ $json.graphicBrief.textOverlay }}\nVisual Style: {{ $json.graphicBrief.visualStyle }}\nColor Palette: {{ $json.graphicBrief.colorPalette }}\nCanva Tips: {{ $json.graphicBrief.canvaTips }}\nRecommended Size: {{ $json.graphicBrief.recommendedSize }}\n\n── REVIEW CHECKLIST ──\n{{ $json.reviewChecklist.join('\\n') }}\n\n════════════════════════════════════════\nPlease reply with APPROVED or share edits.\n════════════════════════════════════════",
+        "options": {}
+      },
+      "id": "57dbafe6-5ce3-4c9c-b015-f19d32110310",
+      "name": "Step 8b — Email to Reviewer",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2736,
+        384
+      ],
+      "webhookId": "9d0fb9ef-1a17-47a0-9f13-e620cf932734",
+      "credentials": {
+        "googleApi": {
+          "id": "x8vINhaUIMdPeyaI",
+          "name": "mpt-google-full-access"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── GOOGLE SHEETS LOGGING ───\n// This node prepares the data for logging to a Google Sheet\nconst data = $input.first().json;\n\nreturn {\n  json: {\n    date: new Date().toISOString(),\n    category: data.category,\n    hook: data.hookLine,\n    postText: data.linkedinPostText,\n    graphicConcept: data.graphicBrief.title,\n    graphicStyle: data.graphicBrief.visualStyle,\n    scheduledFor: data.suggestedScheduleDisplay,\n    status: data.status\n  }\n};"
+      },
+      "id": "fdf1b69e-3f05-4ee1-8461-8b59da91470e",
+      "name": "Prepare Sheet Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2736,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1CRiIidrt6pW0xLcuUQHJ4xqxYzzKzp8ds6R-nACs1tc/edit?gid=0#gid=0",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "linkedin post",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d58b1ca1-3c11-407b-b43f-46649ed4d130",
+      "name": "Step 9 — Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3008,
+        592
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "9aTcJsfU6HrR38dD",
+          "name": "Google Service Account account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 🚀 LinkedIn Post Automation Pipeline\n\n### How This Workflow Works:\n\n**Step 1** — Selects a post category (Education / Thought Leadership / CTA) based on day-of-week rotation\n\n**Step 2** — Sends the category to OpenAI GPT-4o to generate 5 hook lines / post ideas\n\n**Step 3** — Scores all 5 ideas on: Curiosity, Specificity, Emotion, Relevance, Scroll-Stop Power → picks the best\n\n**Step 4** — Sends the winning hook to GPT-4o to write the full LinkedIn post\n\n**Step 5** — Sends the post to GPT-4o to generate 5 graphic/visual ideas (Canva-ready)\n\n**Step 6** — Scores the graphic ideas and picks the best one\n\n**Step 7** — Assembles the full package: post text + graphic brief + schedule suggestion\n\n**Step 8** — Sends for review via Slack AND Email\n\n**Step 9** — Logs everything to Google Sheets for tracking\n\n---\n\n### Setup Required:\n1. Add OpenAI API credentials\n2. Add Slack credentials + create `#linkedin-content-review` channel\n3. Add Gmail OAuth2 credentials\n4. Add Google Sheets credentials + create tracking spreadsheet\n5. Set `REVIEWER_EMAIL` environment variable in n8n Settings\n6. Adjust the cron schedule to your preferred posting days/times",
+        "height": 620,
+        "width": 460,
+        "color": 4
+      },
+      "id": "3a44e248-8c2e-4371-886a-0424fc7e5d90",
+      "name": "Sticky Note — Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### 🔌 MANUAL STEPS (You Do These)\n\n1. **Review** the Slack/Email notification\n2. **Create graphic** in Canva using the brief\n3. **Combine** post text + graphic\n4. **Schedule** via LinkedIn or a scheduler tool\n5. **Update status** in Google Sheet to PUBLISHED",
+        "height": 260,
+        "width": 380,
+        "color": 6
+      },
+      "id": "18a609da-c1a8-4bcf-82d9-1a9a9beedf54",
+      "name": "Sticky Note — Manual Steps",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2720,
+        784
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (Mon/Wed/Fri 9AM)": {
+      "main": [
+        [
+          {
+            "node": "Step 1 — Select Post Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Step 1 — Select Post Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 1 — Select Post Category": {
+      "main": [
+        [
+          {
+            "node": "Step 2 — Generate 5 Post Ideas (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 2 — Generate 5 Post Ideas (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Step 3 — Score & Pick Best Idea",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 3 — Score & Pick Best Idea": {
+      "main": [
+        [
+          {
+            "node": "Step 4 — Generate Full Post (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 4 — Generate Full Post (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Parse Post Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Post Output": {
+      "main": [
+        [
+          {
+            "node": "Step 5 — Generate 5 Graphic Ideas (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 5 — Generate 5 Graphic Ideas (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Step 6 — Score & Pick Best Graphic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 6 — Score & Pick Best Graphic": {
+      "main": [
+        [
+          {
+            "node": "Step 7 — Assemble Final Post Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 7 — Assemble Final Post Package": {
+      "main": [
+        [
+          {
+            "node": "Step 8a — Send to Slack for Review",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Step 8b — Email to Reviewer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Prepare Sheet Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Sheet Log": {
+      "main": [
+        [
+          {
+            "node": "Step 9 — Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "3fcab63c5ac98d4a87d5742f13fb87d9c58792aef1a3bcaee1924110d3018926"
+  }
+}
